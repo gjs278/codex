@@ -1432,6 +1432,78 @@ async fn project_layer_is_added_when_dot_codex_exists_without_config_toml() -> s
 }
 
 #[tokio::test]
+async fn zero_byte_project_dot_codex_file_is_removed_on_startup() -> std::io::Result<()> {
+    let tmp = tempdir()?;
+    let project_root = tmp.path().join("project");
+    let nested = project_root.join("child");
+    let dot_codex = project_root.join(".codex");
+    tokio::fs::create_dir_all(&nested).await?;
+    tokio::fs::write(&dot_codex, "").await?;
+    tokio::fs::write(project_root.join(".git"), "gitdir: here").await?;
+
+    let codex_home = tmp.path().join("home");
+    tokio::fs::create_dir_all(&codex_home).await?;
+    make_config_for_test(
+        &codex_home,
+        &project_root,
+        TrustLevel::Trusted,
+        /*project_root_markers*/ None,
+    )
+    .await?;
+
+    load_config_layers_state(
+        LOCAL_FS.as_ref(),
+        &codex_home,
+        Some(AbsolutePathBuf::from_absolute_path(&nested)?),
+        &[] as &[(String, TomlValue)],
+        LoaderOverrides::default(),
+        CloudRequirementsLoader::default(),
+        &codex_config::NoopThreadConfigLoader,
+        /*host_name*/ None,
+    )
+    .await?;
+
+    assert!(!tokio::fs::try_exists(&dot_codex).await?);
+    Ok(())
+}
+
+#[tokio::test]
+async fn nonempty_project_dot_codex_file_is_not_removed_on_startup() -> std::io::Result<()> {
+    let tmp = tempdir()?;
+    let project_root = tmp.path().join("project");
+    let nested = project_root.join("child");
+    let dot_codex = project_root.join(".codex");
+    tokio::fs::create_dir_all(&nested).await?;
+    tokio::fs::write(&dot_codex, "keep").await?;
+    tokio::fs::write(project_root.join(".git"), "gitdir: here").await?;
+
+    let codex_home = tmp.path().join("home");
+    tokio::fs::create_dir_all(&codex_home).await?;
+    make_config_for_test(
+        &codex_home,
+        &project_root,
+        TrustLevel::Trusted,
+        /*project_root_markers*/ None,
+    )
+    .await?;
+
+    load_config_layers_state(
+        LOCAL_FS.as_ref(),
+        &codex_home,
+        Some(AbsolutePathBuf::from_absolute_path(&nested)?),
+        &[] as &[(String, TomlValue)],
+        LoaderOverrides::default(),
+        CloudRequirementsLoader::default(),
+        &codex_config::NoopThreadConfigLoader,
+        /*host_name*/ None,
+    )
+    .await?;
+
+    assert!(tokio::fs::try_exists(&dot_codex).await?);
+    Ok(())
+}
+
+#[tokio::test]
 async fn codex_home_is_not_loaded_as_project_layer_from_home_dir() -> std::io::Result<()> {
     let tmp = tempdir()?;
     let home_dir = tmp.path().join("home");

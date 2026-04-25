@@ -805,6 +805,16 @@ fn append_read_only_subpath_args(
     }
 
     if !subpath.exists() {
+        // Binding /dev/null onto a missing top-level .codex can materialize an
+        // empty host file. Existing .codex directories are still protected.
+        if subpath.file_name() == Some(std::ffi::OsStr::new(".codex"))
+            && subpath
+                .parent()
+                .is_some_and(|parent| allowed_write_paths.iter().any(|root| root == parent))
+        {
+            return Ok(());
+        }
+
         if let Some(first_missing_component) = find_first_non_existent_component(subpath)
             && is_within_allowed_write_paths(&first_missing_component, allowed_write_paths)
         {
@@ -1425,12 +1435,6 @@ mod tests {
                 "--bind".to_string(),
                 "/".to_string(),
                 "/".to_string(),
-                // Mask the default protected .codex subpath under that writable
-                // root. Because the root is `/` in this test, the carveout path
-                // appears as `/.codex`.
-                "--ro-bind".to_string(),
-                "/dev/null".to_string(),
-                "/.codex".to_string(),
                 // Rebind /dev after the root bind so device nodes remain
                 // writable/usable inside the writable root.
                 "--bind".to_string(),

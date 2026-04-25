@@ -955,6 +955,13 @@ async fn load_project_layers(
     let mut layers = Vec::new();
     for dir in dirs {
         let dot_codex_abs = dir.join(".codex");
+        let dot_codex_normalized =
+            normalize_path(dot_codex_abs.as_path()).unwrap_or_else(|_| dot_codex_abs.to_path_buf());
+        let is_codex_home =
+            dot_codex_abs == codex_home_abs || dot_codex_normalized == codex_home_normalized;
+        if !is_codex_home {
+            remove_empty_project_dot_codex_file_if_present(&dot_codex_abs).await?;
+        }
         if !fs
             .get_metadata(&dot_codex_abs, /*sandbox*/ None)
             .await
@@ -966,9 +973,7 @@ async fn load_project_layers(
 
         let decision = trust_context.decision_for_dir(&dir);
         let disabled_reason = trust_context.disabled_reason_for_decision(&decision);
-        let dot_codex_normalized =
-            normalize_path(dot_codex_abs.as_path()).unwrap_or_else(|_| dot_codex_abs.to_path_buf());
-        if dot_codex_abs == codex_home_abs || dot_codex_normalized == codex_home_normalized {
+        if is_codex_home {
             continue;
         }
         let config_file = dot_codex_abs.join(CONFIG_TOML_FILE);
@@ -1022,6 +1027,27 @@ async fn load_project_layers(
 
     Ok(layers)
 }
+
+async fn remove_empty_project_dot_codex_file_if_present(
+    dot_codex_abs: &AbsolutePathBuf,
+) -> io::Result<()> {
+    let metadata = match tokio::fs::symlink_metadata(dot_codex_abs.as_path()).await {
+        Ok(metadata) => metadata,
+        Err(err) if err.kind() == io::ErrorKind::NotFound => return Ok(()),
+        Err(err) => return Err(err),
+    };
+
+    if !(metadata.file_type().is_file() && metadata.len() == 0) {
+        return Ok(());
+    }
+
+    match tokio::fs::remove_file(dot_codex_abs.as_path()).await {
+        Ok(()) => Ok(()),
+        Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(()),
+        Err(err) => Err(err),
+    }
+}
+
 /// The legacy mechanism for specifying admin-enforced configuration is to read
 /// from a file like `/etc/codex/managed_config.toml` that has the same
 /// structure as `config.toml` where fields like `approval_policy` can specify
